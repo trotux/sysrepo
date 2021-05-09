@@ -1,10 +1,30 @@
 cmake_minimum_required(VERSION 2.8.12)
 
-project(sysrepo)
-set(SYSREPO_DESC "YANG-based system repository for all-around configuration management.")
-
 # include custom Modules
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/CMakeModules/")
+
+# Version of the project
+# Generic version of not only the library. Major version is reserved for really big changes of the project,
+# minor version changes with added functionality (new tool, functionality of the tool or library, ...) and
+# micro version is changed with a set of small changes or bugfixes anywhere in the project.
+set(SYSREPO_MAJOR_VERSION 1)
+set(SYSREPO_MINOR_VERSION 4)
+set(SYSREPO_MICRO_VERSION 122)
+set(SYSREPO_VERSION ${SYSREPO_MAJOR_VERSION}.${SYSREPO_MINOR_VERSION}.${SYSREPO_MICRO_VERSION})
+
+
+if (CMAKE_VERSION VERSION_LESS 3.0)
+    PROJECT(sysrepo C)
+    set(PROJECT_VERSION_MAJOR "${SYSREPO_MAJOR_VERSION}")
+    set(PROJECT_VERSION_MINOR "${SYSREPO_MINOR_VERSION}")
+    set(PROJECT_VERSION_PATCH "${SYSREPO_MICRO_VERSION}")
+    set(PROJECT_VERSION "${SYSREPO_VERSION}")
+else()
+    cmake_policy(SET CMP0048 NEW)
+    PROJECT(sysrepo VERSION "${SYSREPO_VERSION}" LANGUAGES C)
+endif()
+
+set(SYSREPO_DESC "YANG-based system repository for all-around configuration management.")
 
 include(GNUInstallDirs)
 include(CheckSymbolExists)
@@ -13,9 +33,6 @@ include(CheckLibraryExists)
 include(CheckIncludeFile)
 include(UseCompat)
 include(SourceFormat)
-if(POLICY CMP0075)
-    cmake_policy(SET CMP0075 NEW)
-endif()
 
 # osx specific
 set(CMAKE_MACOSX_RPATH TRUE)
@@ -39,15 +56,6 @@ if(NOT FORCE_WSL AND EXISTS "/proc/sys/kernel/osrelease")
         message(FATAL_ERROR "Windows Subsystem for Linux is not supported. Set FORCE_WSL var to bypass at your own risk.")
     endif()
 endif()
-
-# Version of the project
-# Generic version of not only the library. Major version is reserved for really big changes of the project,
-# minor version changes with added functionality (new tool, functionality of the tool or library, ...) and
-# micro version is changed with a set of small changes or bugfixes anywhere in the project.
-set(SYSREPO_MAJOR_VERSION 1)
-set(SYSREPO_MINOR_VERSION 4)
-set(SYSREPO_MICRO_VERSION 122)
-set(SYSREPO_VERSION ${SYSREPO_MAJOR_VERSION}.${SYSREPO_MINOR_VERSION}.${SYSREPO_MICRO_VERSION})
 
 # Version of the library
 # Major version is changed with every backward non-compatible API/ABI change, minor version changes
@@ -221,6 +229,8 @@ set(CMAKE_POSITION_INDEPENDENT_CODE TRUE)
 add_library(srobj OBJECT ${LIB_SRC})
 set_target_properties(srobj PROPERTIES COMPILE_FLAGS "-fvisibility=hidden")
 add_library(sysrepo SHARED $<TARGET_OBJECTS:srobj> $<TARGET_OBJECTS:compat>)
+add_library(sysrepo::sysrepo ALIAS sysrepo)
+set_target_properties(sysrepo PROPERTIES OUTPUT_NAME ${PROJECT_NAME})
 set_target_properties(sysrepo PROPERTIES VERSION ${SYSREPO_SOVERSION_FULL} SOVERSION ${SYSREPO_SOVERSION})
 
 # sysrepoctl tool
@@ -281,13 +291,36 @@ configure_file("${PROJECT_SOURCE_DIR}/src/executables/bin_common.h.in" "${PROJEC
 configure_file("${PROJECT_SOURCE_DIR}/sysrepo.pc.in" "${PROJECT_BINARY_DIR}/sysrepo.pc" @ONLY)
 
 # installation
-install(TARGETS sysrepo DESTINATION ${CMAKE_INSTALL_LIBDIR})
+install(
+    TARGETS sysrepo
+    EXPORT sysrepo
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+
 install(FILES ${PROJECT_SOURCE_DIR}/src/sysrepo.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 install(FILES ${PROJECT_SOURCE_DIR}/src/utils/values.h ${PROJECT_SOURCE_DIR}/src/utils/xpath.h
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/sysrepo)
 install(TARGETS sysrepoctl sysrepocfg sysrepo-plugind DESTINATION ${CMAKE_INSTALL_BINDIR})
 
 install(FILES "${PROJECT_BINARY_DIR}/sysrepo.pc" DESTINATION "${CMAKE_INSTALL_LIBDIR}/pkgconfig")
+
+set(project_config_in "${CMAKE_CURRENT_LIST_DIR}/CMakeModules/sysrepoConfig.cmake.in")
+set(project_config_out "${CMAKE_CURRENT_BINARY_DIR}/sysrepoConfig.cmake")
+set(config_targets_file "sysrepoConfigTargets.cmake")
+set(version_config_file "${CMAKE_CURRENT_BINARY_DIR}/sysrepoConfigVersion.cmake")
+set(export_dest_dir "${CMAKE_INSTALL_LIBDIR}/cmake/sysrepo")
+
+# ---------------------------------------------------------------------------------------
+# Install CMake config files
+# ---------------------------------------------------------------------------------------
+install(EXPORT sysrepo DESTINATION ${export_dest_dir} NAMESPACE sysrepo:: FILE ${config_targets_file})
+
+include(CMakePackageConfigHelpers)
+configure_file("${project_config_in}" "${project_config_out}" @ONLY)
+
+write_basic_package_version_file("${version_config_file}" COMPATIBILITY SameMajorVersion)
+install(FILES "${project_config_out}" "${version_config_file}" DESTINATION "${export_dest_dir}")
 
 if(INSTALL_SYSCTL_CONF)
     install(FILES "${PROJECT_SOURCE_DIR}/66-sysrepo-disable-fs-protected_regular.conf" DESTINATION "${CMAKE_INSTALL_PREFIX}/lib/sysctl.d/")
